@@ -16,5 +16,5 @@ RUN mkdir -p /data
 ENV PORT=8000
 ENV DATA_DIR=/data
 
-# Запуск приложения
-CMD ["python", "-m", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Запуск приложения (PORT подставляется из переменной окружения)
+CMD uvicorn app:app --host 0.0.0.0 --port $PORT

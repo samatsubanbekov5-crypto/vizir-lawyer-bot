@@ -50,7 +50,7 @@ def clean_env_var(raw: str) -> str:
 
 
 # Переменные окружения
-TELEGRAM_TOKEN = clean_env_var(os.getenv('TELEGRAM_TOKEN', ''))
+TELEGRAM_TOKEN = clean_env_var(os.getenv('LAWYER_BOT_TOKEN', '') or os.getenv('TELEGRAM_TOKEN', ''))
 ADMIN_ID = int(os.getenv('ADMIN_ID', '7728619214'))
 
 # Состояния для ConversationHandler регистрации
@@ -924,7 +924,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 def create_app() -> Application:
     """Создание и конфигурация приложения"""
     if not TELEGRAM_TOKEN:
-        raise ValueError("TELEGRAM_TOKEN не задан или пустой")
+        raise ValueError("LAWYER_BOT_TOKEN не задан или пустой")
 
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 

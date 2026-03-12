@@ -751,7 +751,10 @@ async def admin_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
     user_id = update.effective_user.id
 
     if not is_admin(user_id):
-        return  # Не админ — пропускаем
+        # Не админ — обрабатываем как обычное сообщение юриста
+        from bot import handle_message
+        await handle_message(update, context)
+        return
 
     # Обработка загрузки файла для восстановления
     if update.message and update.message.document:
