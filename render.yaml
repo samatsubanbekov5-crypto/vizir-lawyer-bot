@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: vizir-lawyer-bot
+    env: docker
+    dockerfilePath: ./Dockerfile
+    
+    # Переменные окружения
+    envVars:
+      - key: LAWYER_BOT_TOKEN
+        sync: false
+      - key: LAWYER_WEBHOOK_URL
+        sync: false
+      - key: ADMIN_ID
+        value: "7728619214"
+      - key: CLIENT_BOT_TOKEN
+        sync: false
+      - key: LAWYER_BOT_WEBHOOK_URL
+        sync: false
+      - key: DATA_DIR
+        value: "/data"
+      - key: PORT
+        value: "8000"
+    
+    # Диск для хранения данных
+    disk:
+      name: vizir-data
+      mountPath: /data
+      sizeGB: 1
+    
+    # Порт
+    port: 8000
+    
+    # Автоматический перезапуск при обновлении кода
+    autoDeploy: true
+    
+    # Команда запуска
+    startCommand: "python -m uvicorn app:app --host 0.0.0.0 --port 8000"
