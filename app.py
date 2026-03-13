@@ -51,6 +51,13 @@ def clean_env_var(raw: str) -> str:
 # Переменные окружения
 LAWYER_BOT_TOKEN = clean_env_var(os.getenv("LAWYER_BOT_TOKEN", ""))
 LAWYER_WEBHOOK_URL = clean_env_var(os.getenv("LAWYER_WEBHOOK_URL", ""))
+# Автоформирование webhook URL если не задан вручную
+if not LAWYER_WEBHOOK_URL:
+    _render_url = clean_env_var(os.getenv("RENDER_EXTERNAL_URL", ""))
+    if _render_url:
+        LAWYER_WEBHOOK_URL = f"{_render_url}/webhook"
+    else:
+        LAWYER_WEBHOOK_URL = "https://vizir-lawyer-bot.onrender.com/webhook"
 CLIENT_BOT_URL = clean_env_var(os.getenv("CLIENT_BOT_URL", ""))
 CLIENT_BOT_TOKEN = clean_env_var(os.getenv("CLIENT_BOT_TOKEN", ""))
 ADMIN_ID = int(os.getenv("ADMIN_ID", "7728619214"))
