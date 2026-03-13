@@ -101,7 +101,21 @@ async def lifespan(app):
 
         telegram_app = Application.builder().token(LAWYER_BOT_TOKEN).build()
 
-        # ConversationHandler для регистрации
+        # =====================================================================
+        # ПОРЯДОК ОБРАБОТЧИКОВ — КРИТИЧЕСКИ ВАЖЕН!
+        # =====================================================================
+        #
+        # Group 0: Команда /admin — обрабатывается ПЕРВОЙ, до ConversationHandler
+        #          Это позволяет админу вызвать /admin в любой момент,
+        #          даже если ConversationHandler ждёт ввода (регистрация).
+        # Group 1: ConversationHandler для регистрации юристов
+        # Group 2: Остальные команды, кнопки, текстовые сообщения
+        # =====================================================================
+
+        # GROUP 0: Команда /admin — работает ВСЕГДА, без регистрации
+        telegram_app.add_handler(CommandHandler("admin", admin_command), group=0)
+
+        # GROUP 1: ConversationHandler для регистрации
         reg_handler = ConversationHandler(
             entry_points=[CommandHandler("start", start)],
             states={
@@ -119,31 +133,30 @@ async def lifespan(app):
             fallbacks=[
                 CommandHandler("cancel", cancel_registration),
                 CommandHandler("start", start),
+                CommandHandler("admin", admin_command),
             ],
             per_user=True,
             per_chat=True,
         )
+        telegram_app.add_handler(reg_handler, group=1)
 
-        telegram_app.add_handler(reg_handler)
+        # GROUP 2: Остальные команды
+        telegram_app.add_handler(CommandHandler("help", help_command), group=2)
+        telegram_app.add_handler(CommandHandler("menu", menu_command), group=2)
+        telegram_app.add_handler(CommandHandler("stats", stats_command), group=2)
 
-        # Команды
-        telegram_app.add_handler(CommandHandler("help", help_command))
-        telegram_app.add_handler(CommandHandler("menu", menu_command))
-        telegram_app.add_handler(CommandHandler("stats", stats_command))
-        telegram_app.add_handler(CommandHandler("admin", admin_command))
+        # GROUP 2: Callback кнопки — сначала админские, потом юристские
+        telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"), group=2)
+        telegram_app.add_handler(CallbackQueryHandler(button_callback), group=2)
 
-        # Callback кнопки — сначала админские, потом основные
-        telegram_app.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"))
-        telegram_app.add_handler(CallbackQueryHandler(button_callback))
+        # GROUP 2: Файлы (для восстановления из бэкапа)
+        telegram_app.add_handler(MessageHandler(filters.Document.ALL, admin_message_handler), group=2)
 
-        # Файлы (для восстановления из бэкапа)
-        telegram_app.add_handler(MessageHandler(filters.Document.ALL, admin_message_handler))
-
-        # Текстовые сообщения (для админ-панели и прочего)
+        # GROUP 2: Текстовые сообщения (для админ-панели и прочего)
         telegram_app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND,
             admin_message_handler
-        ))
+        ), group=2)
 
         # Инициализируем приложение
         await telegram_app.initialize()

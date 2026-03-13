@@ -29,6 +29,8 @@ from admin import (
     admin_message_handler,
     ADMIN_WAITING_MESSAGE,
     ADMIN_WAITING_BLOCK_REASON,
+    ADMIN_WAITING_BROADCAST,
+    is_admin,
 )
 
 # Настройка логирования
@@ -68,6 +70,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = user.id
 
     try:
+        # ===== АДМИН: пропускаем регистрацию, сразу показываем админ-панель =====
+        if is_admin(user_id):
+            from admin import show_admin_panel
+            await show_admin_panel(update, context)
+            return ConversationHandler.END
+
         # Проверяем, зарегистрирован ли юрист
         lawyer = db.get_lawyer_by_id(user_id)
 
@@ -337,7 +345,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, law
 # ==================== ОБРАБОТКА ЗАЯВОК ====================
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработчик нажатий на кнопки"""
+    """Обработчик нажатий на кнопки (для юристов)"""
     query = update.callback_query
     user_id = query.from_user.id
 
@@ -347,20 +355,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pass
 
     try:
+        # Пропускаем кнопки регистрации — обрабатываются в ConversationHandler
+        if query.data.startswith("spec_"):
+            return
+
+        # Админские кнопки обрабатываются в admin_callback (отдельный handler)
+        if query.data.startswith("admin_"):
+            return
+
         # Проверяем регистрацию и блокировку
         lawyer = db.get_lawyer_by_id(user_id)
 
-        # Пропускаем проверку для кнопок регистрации
-        if query.data.startswith("spec_"):
-            return  # Обрабатывается в ConversationHandler
-
-        if not lawyer and user_id != ADMIN_ID:
+        if not lawyer and not is_admin(user_id):
             await query.edit_message_text(
                 "⚠️ Вы не зарегистрированы. Нажмите /start для регистрации."
             )
             return
 
-        if lawyer and lawyer.get("blocked", False) and user_id != ADMIN_ID:
+        if lawyer and lawyer.get("blocked", False) and not is_admin(user_id):
             await query.edit_message_text(
                 "⛔ Ваш аккаунт заблокирован. Обратитесь к администратору."
             )
@@ -404,10 +416,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # ---- Назад в меню ----
         elif query.data == "back_to_menu":
             await show_main_menu(update, context, lawyer)
-
-        # ---- Админ-кнопки ----
-        elif query.data.startswith("admin_"):
-            await admin_callback(update, context)
 
     except Exception as e:
         logger.error(f"Ошибка в button_callback: {e}", exc_info=True)
@@ -827,6 +835,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = update.effective_user.id
 
     try:
+        # Админ — не требуем регистрации
+        if is_admin(user_id):
+            return  # admin_message_handler обработает
+
         lawyer = db.get_lawyer_by_id(user_id)
 
         if not lawyer:
@@ -863,7 +875,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "/start — Главное меню / Регистрация\n"
         "/help — Эта справка\n"
         "/menu — Открыть главное меню\n"
-        "/stats — Моя статистика\n\n"
+        "/stats — Моя статистика\n"
+        "/admin — Панель администратора\n\n"
         "*Как это работает:*\n"
         "1️⃣ Зарегистрируйтесь в боте\n"
         "2️⃣ Получайте уведомления о новых заявках\n"
@@ -879,6 +892,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /menu"""
     user_id = update.effective_user.id
+
+    # Админ — показываем админ-панель
+    if is_admin(user_id):
+        from admin import show_admin_panel
+        await show_admin_panel(update, context)
+        return
+
     lawyer = db.get_lawyer_by_id(user_id)
     if lawyer:
         await show_main_menu(update, context, lawyer)
@@ -891,6 +911,13 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик команды /stats"""
     user_id = update.effective_user.id
+
+    # Админ — показываем общую аналитику
+    if is_admin(user_id):
+        from admin import show_admin_panel
+        await show_admin_panel(update, context)
+        return
+
     stats = db.get_lawyer_stats(user_id)
 
     if not stats:
@@ -928,6 +955,10 @@ def create_app() -> Application:
 
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
+    # ВАЖНО: Команда /admin добавляется ДО ConversationHandler,
+    # чтобы она работала даже когда пользователь в состоянии регистрации
+    application.add_handler(CommandHandler("admin", admin_command), group=0)
+
     # ConversationHandler для регистрации
     reg_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -946,27 +977,30 @@ def create_app() -> Application:
         fallbacks=[
             CommandHandler("cancel", cancel_registration),
             CommandHandler("start", start),
+            CommandHandler("admin", admin_command),
         ],
         per_user=True,
         per_chat=True,
     )
 
-    application.add_handler(reg_handler)
+    application.add_handler(reg_handler, group=1)
 
-    # Команды
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("menu", menu_command))
-    application.add_handler(CommandHandler("stats", stats_command))
-    application.add_handler(CommandHandler("admin", admin_command))
+    # Команды (group=2 — после ConversationHandler)
+    application.add_handler(CommandHandler("help", help_command), group=2)
+    application.add_handler(CommandHandler("menu", menu_command), group=2)
+    application.add_handler(CommandHandler("stats", stats_command), group=2)
 
-    # Обработчик кнопок (вне ConversationHandler)
-    application.add_handler(CallbackQueryHandler(button_callback))
+    # Обработчик админских кнопок (group=2)
+    application.add_handler(CallbackQueryHandler(admin_callback, pattern="^admin_"), group=2)
 
-    # Обработчик текстовых сообщений для админ-панели
+    # Обработчик кнопок юристов (group=2)
+    application.add_handler(CallbackQueryHandler(button_callback), group=2)
+
+    # Обработчик текстовых сообщений для админ-панели (group=2)
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND,
         admin_message_handler
-    ))
+    ), group=2)
 
     # Обработчик ошибок
     application.add_error_handler(error_handler)
